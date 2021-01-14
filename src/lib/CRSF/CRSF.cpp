@@ -376,7 +376,7 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX(void *pvParameters) // in values i
 
 #endif
 
-#if defined(PLATFORM_ESP8266) || defined(TARGET_R9M_RX) || defined(TARGET_RX_GHOST_ATTO_V1) || defined(TARGET_SX1280_RX_CCG_NANO_v05) ||defined(UNIT_TEST)
+#if defined(PLATFORM_ESP8266) || defined(PLATFORM_ESP32) || defined(TARGET_R9M_RX) || defined(TARGET_RX_GHOST_ATTO_V1) || defined(TARGET_SX1280_RX_CCG_NANO_v05) ||defined(UNIT_TEST)
         bool CRSF::RXhandleUARTout()
         {
             uint8_t peekVal = SerialOutFIFO.peek(); // check if we have data in the output FIFO that needs to be written

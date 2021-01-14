@@ -28,7 +28,7 @@ public:
         FP_Shift = 5;
     }
 
-    int32_t ICACHE_RAM_ATTR update(int32_t Indata)
+    int32_t update(int32_t Indata)
     {
         int RawData;
         RawData = Indata;

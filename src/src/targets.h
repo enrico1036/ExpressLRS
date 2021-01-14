@@ -34,6 +34,20 @@
 #endif
 
 #ifdef TARGET_TTGO_LORA_V1_AS_RX
+#define GPIO_PIN_NSS 18
+#define GPIO_PIN_BUSY           -1 // NOT USED ON THIS TARGET
+#define GPIO_PIN_DIO0 26
+#define GPIO_PIN_DIO1 -1
+#define GPIO_PIN_MOSI 27
+#define GPIO_PIN_MISO 19
+#define GPIO_PIN_SCK 5
+#define GPIO_PIN_RST 14
+#define GPIO_PIN_OLED_SDA 4
+#define GPIO_PIN_OLED_SCK 15
+#define GPIO_PIN_RCSIGNAL_RX 13
+#define GPIO_PIN_RCSIGNAL_TX 13
+#define GPIO_PIN_LED 2
+#define timerOffset -1
 #endif
 
 #ifdef TARGET_TTGO_LORA_V2_AS_TX

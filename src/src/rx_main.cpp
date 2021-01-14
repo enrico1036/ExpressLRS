@@ -28,6 +28,10 @@ SX1280Driver Radio;
 #include "ESP8266_WebUpdate.h"
 #endif
 
+#ifdef PLATFORM_ESP32
+#include "ESP32_WebUpdate.h"
+#endif
+
 #ifdef PLATFORM_STM32
 #include "STM32_UARTinHandler.h"
 #endif
@@ -53,7 +57,11 @@ uint32_t LEDupdateCounterMillis;
 
 hwTimer hwTimer;
 GENERIC_CRC8 ota_crc(ELRS_CRC_POLY);
+#ifdef PLATFORM_ESP32
+CRSF crsf;
+#else
 CRSF crsf(Serial); //pass a serial port object to the class for it to use
+#endif
 
 /// Filters ////////////////
 LPF LPF_Offset(2);
