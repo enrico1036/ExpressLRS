@@ -47,6 +47,7 @@
 #define GPIO_PIN_RCSIGNAL_RX 13
 #define GPIO_PIN_RCSIGNAL_TX 13
 #define GPIO_PIN_LED 2
+#define GPIO_PIN_BUTTON 0
 #define timerOffset -1
 #endif
 

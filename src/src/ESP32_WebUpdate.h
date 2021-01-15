@@ -1,5 +1,13 @@
 
 #ifdef PLATFORM_ESP32
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <mDNS.h>
+#include <DNSServer.h>
+#include <HTTPUpdate.h>
+#include "ESP32_hwTimer.h"
+
 void HandleWebUpdate();
 void BeginWebUpdate();
 

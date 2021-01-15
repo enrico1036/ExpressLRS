@@ -53,15 +53,17 @@ uint32_t LEDupdateCounterMillis;
 #define SEND_LINK_STATS_TO_FC_INTERVAL 100
 ///////////////////
 
-#define DEBUG_SUPPRESS // supresses debug messages on uart
+#define DEBUG_SERIAL_BAUD 115200
+//#define DEBUG_SUPPRESS // supresses debug messages on uart
 
 hwTimer hwTimer;
 GENERIC_CRC8 ota_crc(ELRS_CRC_POLY);
 #ifdef PLATFORM_ESP32
 CRSF crsf;
 #else
-CRSF crsf(Serial); //pass a serial port object to the class for it to use
+CRSF crsf(Serial1); //pass a serial port object to the class for it to use
 #endif
+
 
 /// Filters ////////////////
 LPF LPF_Offset(2);
@@ -275,7 +277,9 @@ void ICACHE_RAM_ATTR HWtimerCallbackTick() // this is 180 out of phase with the 
     alreadyFHSS = false;
     uplinkLQ = LQCALC.getLQ();
     LQCALC.inc();
+    #ifndef PLATFORM_ESP32
     crsf.RXhandleUARTout();
+    #endif
 }
 
 void ICACHE_RAM_ATTR HWtimerCallbackTock()
@@ -605,7 +609,7 @@ void sampleButton()
     }
     if ((millis() > buttonLastPressed + BUTTON_RESET_INTERVAL) && buttonDown)
     {
-#ifdef PLATFORM_ESP8266
+#if defined(PLATFORM_ESP8266) || defined(PLATFORM_ESP32)
         ESP.restart();
 #endif
     }
@@ -658,14 +662,19 @@ void setup()
 #endif /* TARGET_RX_GHOST_ATTO_V1 */
 #endif /* PLATFORM_STM32 */
 
-    Serial.begin(CRSF_RX_BAUDRATE);
+    Serial.begin(DEBUG_SERIAL_BAUD);
 
     Serial.println("ExpressLRS Module Booting...");
 
-#ifdef PLATFORM_ESP8266
+#ifdef PLATFORM_ESP8266 
     WiFi.mode(WIFI_OFF);
     WiFi.forceSleepBegin();
 #endif /* PLATFORM_ESP8266 */
+
+#ifdef PLATFORM_ESP32
+    WiFi.mode(WIFI_OFF);
+    WiFi.setSleep(true);
+#endif/* PLATFORM_ESP32 */
 
 #ifdef GPIO_PIN_LED_GREEN
     pinMode(GPIO_PIN_LED_GREEN, OUTPUT);
@@ -770,10 +779,12 @@ void loop()
 {
     if (hwTimer.running == false)
     {
+        #ifndef PLATFORM_ESP32
         crsf.RXhandleUARTout();
+        #endif
     }
 
-    #if defined(PLATFORM_ESP8266) && defined(AUTO_WIFI_ON_BOOT)
+    #if (defined(PLATFORM_ESP8266) || defined(PLATFORM_ESP32)) && defined(AUTO_WIFI_ON_BOOT)
     if (!disableWebServer && (connectionState == disconnected) && !webUpdateMode && millis() > 20000)
     {
         beginWebsever();
