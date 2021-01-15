@@ -430,9 +430,12 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX(void *pvParameters) // in values i
 
             outBuffer[RCframeLength + 3] = crc;
 #ifndef DEBUG_CRSF_NO_OUTPUT
-            //SerialOutFIFO.push(RCframeLength + 4);
-            //SerialOutFIFO.pushBytes(outBuffer, RCframeLength + 4);
+#ifdef PLATFORM_ESP32
+            SerialOutFIFO.push(RCframeLength + 4);
+            SerialOutFIFO.pushBytes(outBuffer, RCframeLength + 4);
+#else
             this->_dev->write(outBuffer, RCframeLength + 4);
+#endif
 #endif
         }
 
@@ -465,9 +468,12 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX(void *pvParameters) // in values i
             // CRSF frame crc
             outBuffer[totalBufferLen - 1] = crsf_crc.calc(&outBuffer[2], ENCAPSULATED_MSP_FRAME_LEN + CRSF_FRAME_LENGTH_EXT_TYPE_CRC - 1);
 
-            // SerialOutFIFO.push(totalBufferLen);
-            // SerialOutFIFO.pushBytes(outBuffer, totalBufferLen);
+#ifdef PLATFORM_ESP32
+            SerialOutFIFO.push(totalBufferLen);
+            SerialOutFIFO.pushBytes(outBuffer, totalBufferLen);
+#else
             this->_dev->write(outBuffer, totalBufferLen);
+#endif
         }
 #endif
 
