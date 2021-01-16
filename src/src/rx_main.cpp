@@ -54,7 +54,7 @@ uint32_t LEDupdateCounterMillis;
 ///////////////////
 
 #define DEBUG_SERIAL_BAUD 115200
-//#define DEBUG_SUPPRESS // supresses debug messages on uart
+#define DEBUG_SUPPRESS // supresses debug messages on uart
 
 hwTimer hwTimer;
 GENERIC_CRC8 ota_crc(ELRS_CRC_POLY);
@@ -486,6 +486,15 @@ void ICACHE_RAM_ATTR ProcessRFPacket()
         {
             crsf.sendRCFrameToFC();
         }
+        // Serial.print(crsf.PackedRCdataOut.ch0); Serial.print("|");
+        // Serial.print(crsf.PackedRCdataOut.ch1); Serial.print("|");
+        // Serial.print(crsf.PackedRCdataOut.ch2); Serial.print("|");
+        // Serial.print(crsf.PackedRCdataOut.ch3); Serial.print("|");
+        // Serial.print(crsf.PackedRCdataOut.ch4); Serial.print("|");
+        // Serial.print(crsf.PackedRCdataOut.ch5); Serial.print("|");
+        // Serial.print(crsf.PackedRCdataOut.ch6); Serial.print("|");
+        // Serial.print(crsf.PackedRCdataOut.ch7);
+        // Serial.println();
         break;
 
     case MSP_DATA_PACKET:
@@ -779,9 +788,7 @@ void loop()
 {
     if (hwTimer.running == false)
     {
-        #ifndef PLATFORM_ESP32
         crsf.RXhandleUARTout();
-        #endif
     }
 
     #if (defined(PLATFORM_ESP8266) || defined(PLATFORM_ESP32)) && defined(AUTO_WIFI_ON_BOOT)

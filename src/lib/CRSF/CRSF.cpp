@@ -99,7 +99,16 @@ void CRSF::Begin()
 {
     Serial.println("About to start CRSF task...");
 
-#ifdef PLATFORM_ESP32
+#ifdef ESP32_AS_RX
+    CRSF::Port.begin(CRSF_OPENTX_FAST_BAUDRATE, SERIAL_8N1, CSFR_RXpin_Module, CSFR_TXpin_Module, false, 500);
+    UARTcurrentBaud = CRSF_OPENTX_FAST_BAUDRATE;
+    CRSF::duplex_set_RX();
+
+    while (CRSF::Port.available())
+    {
+        CRSF::Port.read(); // measure sure there is no garbage on the UART at the start
+    }
+#else
     mutexOutFIFO = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(ESP32uartTask, "ESP32uartTask", 3000, NULL, 10, &xESP32uartTask, 1);
     xTaskCreatePinnedToCore(UARTwdt, "ESP32uartWDTTask", 2000, NULL, 10, &xESP32uartWDT, 1);
@@ -389,7 +398,14 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX(void *pvParameters) // in values i
                     uint8_t OutData[OutPktLen];
                     SerialOutFIFO.popBytes(OutData, OutPktLen);
                     interrupts();
+                #ifdef PLATFORM_ESP32
+                    CRSF::duplex_set_TX();
+                    CRSF::Port.write(OutData, OutPktLen); // write the packet out
+                    CRSF::Port.flush();                   // flush makes sure all bytes are pushed.
+                    CRSF::duplex_set_RX();
+                #else
                     this->_dev->write(OutData, OutPktLen); // write the packet out
+                #endif
                     return true;
                 }
             }
