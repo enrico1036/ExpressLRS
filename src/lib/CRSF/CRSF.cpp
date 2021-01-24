@@ -97,6 +97,7 @@ uint32_t CRSF::RequestedRCpacketInterval = 5000; // default to 200hz as per 'nor
 
 void CRSF::Begin()
 {
+#ifdef PLATFORM_ESP32
 #ifdef ESP32_AS_RX
     CRSF::Port.begin(CRSF_RX_BAUDRATE, SERIAL_8N1, CSFR_RXpin_Module, CSFR_TXpin_Module, false, 500);
     UARTcurrentBaud = CRSF_RX_BAUDRATE;
@@ -105,6 +106,7 @@ void CRSF::Begin()
     mutexOutFIFO = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(ESP32uartTask, "ESP32uartTask", 3000, NULL, 10, &xESP32uartTask, 1);
     xTaskCreatePinnedToCore(UARTwdt, "ESP32uartWDTTask", 2000, NULL, 10, &xESP32uartWDT, 1);
+#endif
 #endif
 #if defined(TARGET_R9M_TX) || defined(TARGET_R9M_LITE_TX) || defined(TARGET_R9M_LITE_PRO_TX)
     // TODO: Find out if xTaskCreate is a substitute for xTaskCreatePinnedToCore
@@ -393,8 +395,8 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX(void *pvParameters) // in values i
                     interrupts();
                 #ifdef PLATFORM_ESP32
                     CRSF::duplex_set_TX();
-                    // CRSF::Port.write(OutData, OutPktLen); // write the packet out
-                    // CRSF::Port.flush();                   // flush makes sure all bytes are pushed.
+                    CRSF::Port.write(OutData, OutPktLen); // write the packet out
+                    CRSF::Port.flush();                   // flush makes sure all bytes are pushed.
                     Serial.print("CRSF: ");
                     // Serial.write(OutData, OutPktLen);
                     // Serial.flush();
