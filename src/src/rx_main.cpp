@@ -277,7 +277,9 @@ void ICACHE_RAM_ATTR HWtimerCallbackTick() // this is 180 out of phase with the 
     alreadyFHSS = false;
     uplinkLQ = LQCALC.getLQ();
     LQCALC.inc();
+    #ifndef PLATFORM_ESP32
     crsf.RXhandleUARTout();
+    #endif
 }
 
 void ICACHE_RAM_ATTR HWtimerCallbackTock()
@@ -784,7 +786,9 @@ void setup()
 
 void loop()
 {
+    #ifndef PLATFORM_ESP32
     if (hwTimer.running == false)
+    #endif
     {
         crsf.RXhandleUARTout();
     }

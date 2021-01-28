@@ -101,7 +101,8 @@ void CRSF::Begin()
 #ifdef ESP32_AS_RX
     CRSF::Port.begin(CRSF_RX_BAUDRATE, SERIAL_8N1, CSFR_RXpin_Module, CSFR_TXpin_Module, false, 500);
     UARTcurrentBaud = CRSF_RX_BAUDRATE;
-    CRSF::duplex_set_RX();
+
+    // CRSF::duplex_set_RX();
 #else
     mutexOutFIFO = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(ESP32uartTask, "ESP32uartTask", 3000, NULL, 10, &xESP32uartTask, 1);
@@ -381,7 +382,7 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX(void *pvParameters) // in values i
 #endif
 
 #if defined(PLATFORM_ESP8266) || defined(PLATFORM_ESP32) || defined(TARGET_R9M_RX) || defined(TARGET_RX_GHOST_ATTO_V1) || defined(TARGET_SX1280_RX_CCG_NANO_v05) ||defined(UNIT_TEST)
-        bool CRSF::RXhandleUARTout()
+        bool ICACHE_RAM_ATTR CRSF::RXhandleUARTout()
         {
             uint8_t peekVal = SerialOutFIFO.peek(); // check if we have data in the output FIFO that needs to be written
             if (peekVal > 0)
@@ -397,7 +398,7 @@ void ICACHE_RAM_ATTR CRSF::sendSyncPacketToTX(void *pvParameters) // in values i
                     CRSF::duplex_set_TX();
                     CRSF::Port.write(OutData, OutPktLen); // write the packet out
                     CRSF::Port.flush();                   // flush makes sure all bytes are pushed.
-                    Serial.print("CRSF: ");
+                    // Serial.print("CRSF: ");
                     // Serial.write(OutData, OutPktLen);
                     // Serial.flush();
                     CRSF::duplex_set_RX();
