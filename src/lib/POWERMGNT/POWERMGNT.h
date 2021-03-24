@@ -36,7 +36,7 @@
 #endif
 
 #ifdef TARGET_1000mW_MODULE
-#define MaxPower 4
+#define MaxPower 6
 #define DefaultPowerEnum 2 
 #endif
 
