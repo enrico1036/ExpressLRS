@@ -52,6 +52,20 @@
 #elif defined(TARGET_TTGO_LORA_V2_AS_RX)
  // not supported
 
+#elif defined(TARGET_DIY_868_TX_E19)
+#define GPIO_PIN_NSS 5
+#define GPIO_PIN_BUSY           -1 // NOT USED ON THIS TARGET
+#define GPIO_PIN_DIO0 26
+#define GPIO_PIN_DIO1 25
+#define GPIO_PIN_MOSI 23
+#define GPIO_PIN_MISO 19
+#define GPIO_PIN_SCK 18
+#define GPIO_PIN_RST 4
+#define GPIO_PIN_RX_ENABLE 22
+#define GPIO_PIN_TX_ENABLE 21
+#define GPIO_PIN_RCSIGNAL_RX 27
+#define GPIO_PIN_RCSIGNAL_TX 27 // so we don't have to solder the extra resistor, we switch rx/tx using gpio mux
+
 #elif defined(TARGET_EXPRESSLRS_PCB_TX_V3)
 #define GPIO_PIN_NSS 5
 #define GPIO_PIN_BUSY           -1 // NOT USED ON THIS TARGET
