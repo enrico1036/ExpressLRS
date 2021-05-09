@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include <stdint.h>
 #include "targets.h"
 
@@ -22,14 +21,14 @@ static inline void LEDsend_1(void) {
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP();
-#ifndef TARGET_NAMIMNORC_VOYAGER_TX
+#if !defined(STM32F1)
         __NOP();
 #endif
         digitalWriteFast(GPIO_PIN_LED_WS2812_FAST, LOW);
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP();
-#ifndef TARGET_NAMIMNORC_VOYAGER_TX
+#if !defined(STM32F1)
         __NOP(); __NOP(); __NOP(); __NOP();
 #endif
 }
@@ -39,7 +38,7 @@ static inline void LEDsend_0(void) {
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP();
-#ifndef TARGET_NAMIMNORC_VOYAGER_TX
+#if !defined(STM32F1)
         __NOP(); __NOP(); __NOP(); __NOP();
 #endif
         digitalWriteFast(GPIO_PIN_LED_WS2812_FAST, LOW);
@@ -52,7 +51,7 @@ static inline void LEDsend_0(void) {
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
         __NOP(); __NOP(); __NOP(); __NOP();
-#ifndef TARGET_NAMIMNORC_VOYAGER_TX
+#if !defined(STM32F1)
         __NOP();
 #endif
 }

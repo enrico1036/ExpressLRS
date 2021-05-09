@@ -1,7 +1,6 @@
-#include <Arduino.h>
 #include "CRSF.h"
 #include "../../lib/FIFO/FIFO.h"
-#include "HardwareSerial.h"
+#include "telemetry_protocol.h"
 
 //#define DEBUG_CRSF_NO_OUTPUT // debug, don't send RC msgs over UART
 
@@ -27,6 +26,7 @@ GENERIC_CRC8 crsf_crc(CRSF_CRC_POLY);
 
 ///Out FIFO to buffer messages///
 FIFO SerialOutFIFO;
+FIFO MspWriteFIFO;
 
 volatile bool CRSF::CRSFframeActive = false; //since we get a copy of the serial data use this flag to know when to ignore it
 
@@ -87,6 +87,10 @@ bool CRSF::CRSFstate = false;
 // for the UART wdt, every 1000ms we change bauds when connect is lost
 #define UARTwdtInterval 1000
 
+uint8_t CRSF::MspData[ELRS_MSP_BUFFER] = {0};
+uint8_t CRSF::MspDataLength = 0;
+volatile uint8_t CRSF::MspRequestsInTransit = 0;
+uint32_t CRSF::LastMspRequestSent = 0;
 #endif // CRSF_TX_MODULE
 
 
@@ -99,24 +103,17 @@ void CRSF::Begin()
     UARTwdtLastChecked = millis() + UARTwdtInterval; // allows a delay before the first time the UARTwdt() function is called
 
 #ifdef PLATFORM_ESP32
-    Serial.println("ESP32 CRSF UART LISTEN TASK STARTED");
-
     mutexOutFIFO = xSemaphoreCreateMutex();
-
-    CRSF::Port.begin(CRSF_OPENTX_FAST_BAUDRATE, SERIAL_8N1,
-                     GPIO_PIN_RCSIGNAL_RX, GPIO_PIN_RCSIGNAL_TX,
-                     false, 500);
-    CRSF::duplex_set_RX();
-
-    xTaskCreatePinnedToCore(ESP32uartTask, "ESP32uartTask", 3000, NULL, 0, &xESP32uartTask, 0);
     disableCore0WDT();
+    xTaskCreatePinnedToCore(ESP32uartTask, "ESP32uartTask", 3000, NULL, 0, &xESP32uartTask, 0);
+
 
 #elif defined(PLATFORM_STM32)
     Serial.println("Start STM32 R9M TX CRSF UART");
 
-    #if defined(BUFFER_OE) && (BUFFER_OE != UNDEF_PIN)
-    pinMode(BUFFER_OE, OUTPUT);
-    digitalWrite(BUFFER_OE, !BUFFER_OE_ACTIVE);
+    #if defined(GPIO_PIN_BUFFER_OE) && (GPIO_PIN_BUFFER_OE != UNDEF_PIN)
+    pinMode(GPIO_PIN_BUFFER_OE, OUTPUT);
+    digitalWrite(GPIO_PIN_BUFFER_OE, LOW ^ GPIO_PIN_BUFFER_OE_INVERTED); // RX mode default
     #endif
 
     CRSF::Port.setTx(GPIO_PIN_RCSIGNAL_TX);
@@ -149,7 +146,18 @@ void CRSF::End()
         vTaskDelete(xESP32uartTask);
     }
 #endif
+    uint32_t startTime = millis();
+    #define timeout 2000
+    while (SerialOutFIFO.peek() > 0)
+    {
+        handleUARTin();
+        if (millis() - startTime > 1000)
+        {
+            break;
+        }
+    }
     CRSF::Port.end();
+    Serial.println("CRSF UART END");
 #endif // CRSF_TX_MODULE
 }
 
@@ -197,8 +205,7 @@ uint8_t ICACHE_RAM_ATTR CRSF::getNextSwitchIndex()
     nextSwitchIndex = (i + 1) % 8;
 
 #ifdef HYBRID_SWITCHES_8
-    // for hydrid switches 0 is sent on every packet, so we can skip
-    // that value for the round-robin
+    // for hydrid switches 0 is sent on every packet, skip it in round-robin
     if (nextSwitchIndex == 0)
     {
         nextSwitchIndex = 1;
@@ -284,8 +291,14 @@ void CRSF::sendLUAresponse(uint8_t val[], uint8_t len)
 
 void ICACHE_RAM_ATTR CRSF::sendTelemetryToTX(uint8_t *data)
 {
+    if (data[2] == CRSF_FRAMETYPE_MSP_RESP)
+    {
+        MspRequestsInTransit--;
+    }
+
     if (data[CRSF_TELEMETRY_LENGTH_INDEX] > CRSF_PAYLOAD_SIZE_MAX)
     {
+        Serial.print("too large");
         return;
     }
 
@@ -429,7 +442,129 @@ bool ICACHE_RAM_ATTR CRSF::ProcessPacket()
         GetChannelDataIn();
         return true;
     }
+    else if (packetType == CRSF_FRAMETYPE_MSP_REQ || packetType == CRSF_FRAMETYPE_MSP_WRITE)
+    {
+        volatile uint8_t *SerialInBuffer = CRSF::inBuffer.asUint8_t;
+        const uint8_t length = CRSF::inBuffer.asRCPacket_t.header.frame_size + 2;
+        AddMspMessage(length, SerialInBuffer);
+        return true;
+    }
     return false;
+}
+
+uint8_t* ICACHE_RAM_ATTR CRSF::GetMspMessage()
+{
+    if (MspDataLength > 0)
+    {
+        return MspData;
+    }
+    return NULL;
+}
+
+void ICACHE_RAM_ATTR CRSF::ResetMspQueue()
+{
+    MspWriteFIFO.flush();
+    MspDataLength = 0;
+    MspRequestsInTransit = 0;
+    memset(MspData, 0, ELRS_MSP_BUFFER);
+}
+
+void ICACHE_RAM_ATTR CRSF::UnlockMspMessage()
+{
+    // current msp message is sent so restore next buffered write
+    if (MspWriteFIFO.peek() > 0)
+    {
+        uint8_t length = MspWriteFIFO.pop();
+        MspDataLength = length;
+        MspWriteFIFO.popBytes(MspData, length);
+    }
+    else
+    {
+        // no msp message is ready to send currently
+        MspDataLength = 0;
+        memset(MspData, 0, ELRS_MSP_BUFFER);
+    }
+}
+
+void ICACHE_RAM_ATTR CRSF::AddMspMessage(mspPacket_t* packet)
+{
+    if (packet->payloadSize > ENCAPSULATED_MSP_PAYLOAD_SIZE)
+    {
+        return;
+    }
+
+    const uint8_t totalBufferLen = ENCAPSULATED_MSP_FRAME_LEN + CRSF_FRAME_LENGTH_EXT_TYPE_CRC + CRSF_FRAME_NOT_COUNTED_BYTES;
+    uint8_t outBuffer[totalBufferLen] = {0};
+
+    // CRSF extended frame header
+    outBuffer[0] = CRSF_ADDRESS_BROADCAST;                                      // address
+    outBuffer[1] = ENCAPSULATED_MSP_FRAME_LEN + CRSF_FRAME_LENGTH_EXT_TYPE_CRC; // length
+    outBuffer[2] = CRSF_FRAMETYPE_MSP_WRITE;                                    // packet type
+    outBuffer[3] = CRSF_ADDRESS_FLIGHT_CONTROLLER;                              // destination
+    outBuffer[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;                              // origin
+
+    // Encapsulated MSP payload
+    outBuffer[5] = 0x30;                // header
+    outBuffer[6] = packet->payloadSize; // mspPayloadSize
+    outBuffer[7] = packet->function;    // packet->cmd
+    for (uint8_t i = 0; i < ENCAPSULATED_MSP_PAYLOAD_SIZE; ++i)
+    {
+        // copy packet payload into outBuffer and pad with zeros where required
+        outBuffer[8 + i] = i < packet->payloadSize ? packet->payload[i] : 0;
+    }
+    // Encapsulated MSP crc
+    outBuffer[totalBufferLen - 2] = CalcCRCMsp(&outBuffer[6], ENCAPSULATED_MSP_FRAME_LEN - 2);
+
+    // CRSF frame crc
+    outBuffer[totalBufferLen - 1] = crsf_crc.calc(&outBuffer[2], ENCAPSULATED_MSP_FRAME_LEN + CRSF_FRAME_LENGTH_EXT_TYPE_CRC - 1);
+    AddMspMessage(totalBufferLen, outBuffer);
+}
+
+void ICACHE_RAM_ATTR CRSF::AddMspMessage(const uint8_t length, volatile uint8_t* data)
+{
+    uint32_t now = millis();
+    if (length > ELRS_MSP_BUFFER)
+    {
+        return;
+    }
+
+    // only store one CRSF_FRAMETYPE_MSP_REQ
+    if ((MspRequestsInTransit > 0 && data[2] == CRSF_FRAMETYPE_MSP_REQ))
+    {
+        if (LastMspRequestSent + ELRS_MSP_REQ_TIMEOUT_MS < now)
+        {
+            MspRequestsInTransit = 0;
+        }
+        else
+        {
+            return;
+        }
+    }
+
+    // store next msp message
+    if (MspDataLength == 0)
+    {
+        for (uint8_t i = 0; i < length; i++)
+        {
+            MspData[i] = data[i];
+        }
+        MspDataLength = length;
+    }
+    // store all write requests since an update does send multiple writes
+    else
+    {
+        MspWriteFIFO.push(length);
+        for (uint8_t i = 0; i < length; i++)
+        {
+            MspWriteFIFO.push(data[i]);
+        }
+    }
+
+    if (data[2] == CRSF_FRAMETYPE_MSP_REQ)
+    {
+        MspRequestsInTransit++;
+        LastMspRequestSent = now;
+    }
 }
 
 void ICACHE_RAM_ATTR CRSF::handleUARTin()
@@ -498,7 +633,7 @@ void ICACHE_RAM_ATTR CRSF::handleUARTin()
                 {
                     if (ProcessPacket())
                     {
-                        delayMicroseconds(50);
+                        //delayMicroseconds(50);
                         handleUARTout();
                     }
                 }
@@ -567,8 +702,8 @@ void ICACHE_RAM_ATTR CRSF::duplex_set_RX()
     gpio_pullup_en((gpio_num_t)GPIO_PIN_RCSIGNAL_RX);
     gpio_pulldown_dis((gpio_num_t)GPIO_PIN_RCSIGNAL_RX);
     #endif
-#elif defined(BUFFER_OE) && (BUFFER_OE != UNDEF_PIN)
-    digitalWrite(BUFFER_OE, !BUFFER_OE_ACTIVE);
+#elif defined(GPIO_PIN_BUFFER_OE) && (GPIO_PIN_BUFFER_OE != UNDEF_PIN)
+    digitalWrite(GPIO_PIN_BUFFER_OE, LOW ^ GPIO_PIN_BUFFER_OE_INVERTED);
 #endif
 }
 
@@ -585,8 +720,8 @@ void ICACHE_RAM_ATTR CRSF::duplex_set_TX()
     #else
     gpio_matrix_out((gpio_num_t)GPIO_PIN_RCSIGNAL_TX, U1TXD_OUT_IDX, false, false);
     #endif
-#elif defined(BUFFER_OE) && (BUFFER_OE != UNDEF_PIN)
-    digitalWrite(BUFFER_OE, BUFFER_OE_ACTIVE);
+#elif defined(GPIO_PIN_BUFFER_OE) && (GPIO_PIN_BUFFER_OE != UNDEF_PIN)
+    digitalWrite(GPIO_PIN_BUFFER_OE, HIGH ^ GPIO_PIN_BUFFER_OE_INVERTED);
 #endif
 }
 
@@ -652,15 +787,20 @@ bool CRSF::UARTwdt()
 //RTOS task to read and write CRSF packets to the serial port
 void ICACHE_RAM_ATTR CRSF::ESP32uartTask(void *pvParameters)
 {
+    Serial.println("ESP32 CRSF UART LISTEN TASK STARTED");
+    CRSF::Port.begin(CRSF_OPENTX_FAST_BAUDRATE, SERIAL_8N1,
+                     GPIO_PIN_RCSIGNAL_RX, GPIO_PIN_RCSIGNAL_TX,
+                     false, 500);
+    CRSF::duplex_set_RX();
+    vTaskDelay(500);
+    flush_port_input();
     (void)pvParameters;
     for (;;)
     {
         handleUARTin();
-        yield();
     }
 }
 #endif // PLATFORM_ESP32
-
 
 #elif CRSF_RX_MODULE // !CRSF_TX_MODULE
 bool CRSF::RXhandleUARTout()
@@ -722,58 +862,44 @@ void ICACHE_RAM_ATTR CRSF::sendRCFrameToFC()
 #endif
 }
 
-void ICACHE_RAM_ATTR CRSF::sendMSPFrameToFC(mspPacket_t * packet)
+void ICACHE_RAM_ATTR CRSF::sendMSPFrameToFC(uint8_t* data)
 {
-    // TODO: This currently only supports single MSP packets per cmd
-    // To support longer packets we need to re-write this to allow packet splitting
-    const uint8_t totalBufferLen = ENCAPSULATED_MSP_FRAME_LEN + CRSF_FRAME_LENGTH_EXT_TYPE_CRC + CRSF_FRAME_NOT_COUNTED_BYTES;
-    uint8_t outBuffer[totalBufferLen] = {0};
-
-    // CRSF extended frame header
-    outBuffer[0] = CRSF_ADDRESS_BROADCAST;                                      // address
-    outBuffer[1] = ENCAPSULATED_MSP_FRAME_LEN + CRSF_FRAME_LENGTH_EXT_TYPE_CRC; // length
-    outBuffer[2] = CRSF_FRAMETYPE_MSP_WRITE;                                    // packet type
-    outBuffer[3] = CRSF_ADDRESS_FLIGHT_CONTROLLER;                              // destination
-    outBuffer[4] = CRSF_ADDRESS_RADIO_TRANSMITTER;                              // origin
-
-    // Encapsulated MSP payload
-    outBuffer[5] = 0x30;                // header
-    outBuffer[6] = packet->payloadSize; // mspPayloadSize
-    outBuffer[7] = packet->function;    // packet->cmd
-    for (uint8_t i = 0; i < ENCAPSULATED_MSP_PAYLOAD_SIZE; ++i)
-    {
-        // copy packet payload into outBuffer and pad with zeros where required
-        outBuffer[8 + i] = i < packet->payloadSize ? packet->payload[i] : 0;
-    }
-    // Encapsulated MSP crc
-    outBuffer[totalBufferLen - 2] = CalcCRCMsp(&outBuffer[6], ENCAPSULATED_MSP_FRAME_LEN - 2);
-
-    // CRSF frame crc
-    outBuffer[totalBufferLen - 1] = crsf_crc.calc(&outBuffer[2], ENCAPSULATED_MSP_FRAME_LEN + CRSF_FRAME_LENGTH_EXT_TYPE_CRC - 1);
+    const uint8_t totalBufferLen = 14;
 
     // SerialOutFIFO.push(totalBufferLen);
     // SerialOutFIFO.pushBytes(outBuffer, totalBufferLen);
-    this->_dev->write(outBuffer, totalBufferLen);
+    this->_dev->write(data, totalBufferLen);
 }
 #endif // CRSF_TX_MODULE
 
 
 /**
- * Convert the rc data corresponding to switches to 2 bit values.
- *
- * I'm defining channels 4 through 11 inclusive as representing switches
- * Take the input values and convert them to the range 0 - 2.
- * (not 0-3 because most people use 3 way switches and expect the middle
- *  position to be represented by a middle numeric value)
+ * Convert the rc data corresponding to switches to 3 bit values.
+ * The output is mapped evenly across 6 output values (0-5)
+ * With a special value 7 indicating the middle so it works
+ * with switches with a middle position as well as 6-position
  */
 void ICACHE_RAM_ATTR CRSF::updateSwitchValues()
 {
-#define INPUT_RANGE 2048
-    const uint16_t SWITCH_DIVISOR = INPUT_RANGE / 3; // input is 0 - 2048
-    for (int i = 0; i < N_SWITCHES; i++)
+    // AUX1 is arm switch, one bit
+    currentSwitches[0] = CRSF_to_BIT(ChannelDataIn[4]);
+
+    // AUX2-(N-1) are Low Resolution, "7pos" (6+center)
+    const uint16_t CHANNEL_BIN_COUNT = 6;
+    const uint16_t CHANNEL_BIN_SIZE = CRSF_CHANNEL_VALUE_SPAN / CHANNEL_BIN_COUNT;
+    for (int i = 1; i < N_SWITCHES-1; i++)
     {
-        currentSwitches[i] = ChannelDataIn[i + 4] / SWITCH_DIVISOR;
-    }
+        uint16_t ch = ChannelDataIn[i + 4];
+        // If channel is within 1/4 a BIN of being in the middle use special value 7
+        if (ch < (CRSF_CHANNEL_VALUE_MID-CHANNEL_BIN_SIZE/4)
+            || ch > (CRSF_CHANNEL_VALUE_MID+CHANNEL_BIN_SIZE/4))
+            currentSwitches[i] = CRSF_to_N(ch, CHANNEL_BIN_COUNT);
+        else
+            currentSwitches[i] = 7;
+    } // for N_SWITCHES
+
+    // AUXx is High Resolution 16-pos (4-bit)
+    currentSwitches[N_SWITCHES-1] = CRSF_to_N(ChannelDataIn[N_SWITCHES-1 + 4], 16);
 }
 
 void ICACHE_RAM_ATTR CRSF::GetChannelDataIn() // data is packed as 11 bits per channel
